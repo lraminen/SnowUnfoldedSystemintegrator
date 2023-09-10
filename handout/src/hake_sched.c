@@ -442,13 +442,124 @@ int hake_exited(Hake_schedule_s *schedule, Hake_process_s *process, int exit_cod
  * Returns a 0 on success or a -1 on any error.
  */
 int hake_terminated(Hake_schedule_s *schedule, pid_t pid, int exit_code) {
-  return -1; // Replace This Line with Your Code!
+  if (schedule == NULL || schedule->terminated_queue == NULL) {
+        // Check for NULL pointers
+        return -1; // Return -1 on error
+    }
+
+    // Search for the process in the Ready Queue or Suspended Queue
+    Hake_process_s *process_to_terminate = NULL;
+    Hake_process_s *prev = NULL;
+
+    // Search in the Ready Queue
+    Hake_process_s *current = schedule->ready_queue->head;
+    while (current != NULL) {
+        if (current->pid == pid) {
+            if (prev != NULL) {
+                prev->next = current->next;
+            } else {
+                schedule->ready_queue->head = current->next;
+            }
+            process_to_terminate = current;
+            break;
+        }
+        prev = current;
+        current = current->next;
+    }
+
+    // If not found in Ready Queue, search in the Suspended Queue
+    if (process_to_terminate == NULL) {
+        current = schedule->suspended_queue->head;
+        prev = NULL;
+        while (current != NULL) {
+            if (current->pid == pid) {
+                if (prev != NULL) {
+                    prev->next = current->next;
+                } else {
+                    schedule->suspended_queue->head = current->next;
+                }
+                process_to_terminate = current;
+                break;
+            }
+            prev = current;
+            current = current->next;
+        }
+    }
+
+    if (process_to_terminate != NULL) {
+        // Set the Terminated State bit of the state member to 1
+        process_to_terminate->state = (process_to_terminate->state & 0x40000000) | 0x10000000;
+
+        // Set the lower 27 bits of the state member to the exit_code
+        process_to_terminate->state = (process_to_terminate->state & 0xF8000000) | (exit_code & 0x07FFFFFF);
+
+        // Insert the terminated process in ascending PID order to the Terminated Queue
+        current = schedule->terminated_queue->head;
+        prev = NULL;
+
+        while (current != NULL && current->pid < process_to_terminate->pid) {
+            prev = current;
+            current = current->next;
+        }
+
+        if (prev == NULL) {
+            // Insert at the beginning of the Terminated Queue
+            process_to_terminate->next = schedule->terminated_queue->head;
+            schedule->terminated_queue->head = process_to_terminate;
+        } else {
+            // Insert after 'prev'
+            prev->next = process_to_terminate;
+            process_to_terminate->next = current;
+        }
+
+        return 0; // Return 0 on success
+    }
+
+    return -1; // Return -1 if the PID was not found
 }
 
 /* Frees all allocated memory in the Hake_schedule_s, all of the Queues, and all of their Nodes.
  * Follow the project documentation for this function.
  * Returns void.
  */
-void hake_deallocate(Hake_schedule_s *schedule) {
-  return; // Replace This Line with Your Code!
+void hake_deallocate(Hake_schedule_s *schedule)
+{
+   if (schedule == NULL) {
+        return; // Return if the schedule is already NULL
+    }
+
+    // Free all Nodes from the Ready Queue
+    Hake_process_s *current = schedule->ready_queue->head;
+    while (current != NULL) {
+        Hake_process_s *next = current->next;
+        free(current->cmd); // Free the cmd String
+        free(current); // Free the process node
+        current = next;
+    }
+
+    // Free all Nodes from the Suspended Queue
+    current = schedule->suspended_queue->head;
+    while (current != NULL) {
+        Hake_process_s *next = current->next;
+        free(current->cmd); // Free the cmd String
+        free(current); // Free the process node
+        current = next;
+    }
+
+    // Free all Nodes from the Terminated Queue
+    current = schedule->terminated_queue->head;
+    while (current != NULL) {
+        Hake_process_s *next = current->next;
+        free(current->cmd); // Free the cmd String
+        free(current); // Free the process node
+        current = next;
+    }
+
+    // Free the Queues
+    free(schedule->ready_queue);
+    free(schedule->suspended_queue);
+    free(schedule->terminated_queue);
+
+    // Free the Hake Schedule
+    free(schedule);
 }
